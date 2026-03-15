@@ -78,10 +78,20 @@ export const suppliersAPI = {
     delete: (id) => api.delete(`/suppliers/${id}`),
 };
 
+// ── Items (Catalog) ────────────────────────────────────────────────────────
+export const itemsAPI = {
+    list: (params) => api.get('/items', { params }),
+    create: (data) => api.post('/items', data),
+    get: (id) => api.get(`/items/${id}`),
+    update: (id, data) => api.put(`/items/${id}`, data),
+    delete: (id) => api.delete(`/items/${id}`),
+};
+
 // ── Products ───────────────────────────────────────────────────────────────
 export const productsAPI = {
     list: (params) => api.get('/products', { params }),
     create: (data) => api.post('/products', data),
+    createBulk: (data) => api.post('/products/bulk', data),
     get: (id) => api.get(`/products/${id}`),
     update: (id, data) => api.put(`/products/${id}`, data),
     delete: (id) => api.delete(`/products/${id}`),
@@ -96,6 +106,7 @@ export const inventoryAPI = {
     stockOut: (data) => api.post('/inventory/stock-out', data),
     adjust: (data) => api.post('/inventory/adjust', data),
     transactions: (params) => api.get('/inventory/transactions', { params }),
+    supplierStats: (params) => api.get('/inventory/supplier-stats', { params }),
 };
 
 // ── Sales ──────────────────────────────────────────────────────────────────

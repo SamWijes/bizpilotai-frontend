@@ -7,7 +7,7 @@ import {
     MenuItem, Grid, Skeleton, Alert,
 } from '@mui/material';
 import { Add, Edit, Delete, Search, Warning } from '@mui/icons-material';
-import { productsAPI, suppliersAPI } from '../../services/api';
+import { productsAPI, suppliersAPI, itemsAPI } from '../../services/api';
 import toast from 'react-hot-toast';
 
 const EMPTY = { name: '', sku: '', description: '', unit: 'pcs', buyingPrice: '', sellingPrice: '', quantity: 0, reorderLevel: 5, categoryId: '', supplierId: '' };
@@ -16,7 +16,7 @@ export default function ProductsPage() {
     const qc = useQueryClient();
     const [page, setPage] = useState(1);
     const [search, setSearch] = useState('');
-    const [dialog, setDialog] = useState({ open: false, mode: 'create', data: EMPTY });
+    const [dialog, setDialog] = useState({ open: false, mode: 'create', data: EMPTY, bulkItems: [{ ...EMPTY }], supplierId: '' });
 
     const { data, isLoading } = useQuery({
         queryKey: ['products', page, search],
@@ -39,8 +39,22 @@ export default function ProductsPage() {
         queryFn: () => suppliersAPI.list({ limit: 100 }).then((r) => r.data.data),
     });
 
+    const { data: itemsData } = useQuery({
+        queryKey: ['items-all'],
+        queryFn: () => itemsAPI.list({ limit: 500 }).then((r) => r.data.data),
+    });
+
     const saveMutation = useMutation({
-        mutationFn: (payload) => dialog.mode === 'create' ? productsAPI.create(payload) : productsAPI.update(dialog.data.id, payload),
+        mutationFn: (payload) => {
+            if (dialog.mode === 'create') {
+                return productsAPI.createBulk({
+                    supplierId: dialog.supplierId,
+                    products: dialog.bulkItems.filter(p => p.name)
+                });
+            } else {
+                return productsAPI.update(dialog.data.id, dialog.data);
+            }
+        },
         onSuccess: () => { qc.invalidateQueries(['products']); qc.invalidateQueries(['low-stock']); toast.success('Product saved!'); setDialog({ ...dialog, open: false }); },
         onError: (err) => toast.error(err.response?.data?.message || 'Error'),
     });
@@ -61,8 +75,8 @@ export default function ProductsPage() {
                     <Typography variant="h4" fontWeight={800}>Products</Typography>
                     <Typography color="text.secondary" variant="body2">{meta?.total || 0} products</Typography>
                 </Box>
-                <Button variant="contained" startIcon={<Add />} onClick={() => setDialog({ open: true, mode: 'create', data: EMPTY })}>
-                    Add Product
+                <Button variant="contained" startIcon={<Add />} onClick={() => setDialog({ open: true, mode: 'create', data: EMPTY, bulkItems: [{ ...EMPTY }], supplierId: '' })}>
+                    Add Products
                 </Button>
             </Stack>
 
@@ -131,49 +145,126 @@ export default function ProductsPage() {
                 {meta && <Box p={2} display="flex" justifyContent="center"><Pagination count={meta.totalPages} page={page} onChange={(_, v) => setPage(v)} color="primary" /></Box>}
             </Card>
 
-            <Dialog open={dialog.open} onClose={() => setDialog({ ...dialog, open: false })} maxWidth="sm" fullWidth>
-                <DialogTitle fontWeight={700}>{dialog.mode === 'create' ? 'Add Product' : 'Edit Product'}</DialogTitle>
+            <Dialog open={dialog.open} onClose={() => setDialog({ ...dialog, open: false })} maxWidth={dialog.mode === 'create' ? "lg" : "sm"} fullWidth>
+                <DialogTitle fontWeight={700}>{dialog.mode === 'create' ? 'Add Products (Bulk)' : 'Edit Product'}</DialogTitle>
                 <DialogContent>
-                    <Grid container spacing={2} mt={0.5}>
-                        {[
-                            { label: 'Product Name', field: 'name', required: true, sm: 12 },
-                            { label: 'SKU', field: 'sku', sm: 6 },
-                            { label: 'Unit (pcs/kg/L)', field: 'unit', sm: 6 },
-                            { label: 'Buying Price', field: 'buyingPrice', type: 'number', sm: 6 },
-                            { label: 'Selling Price', field: 'sellingPrice', type: 'number', sm: 6 },
-                            { label: 'Stock Level', field: 'quantity', type: 'number', sm: 6 },
-                            { label: 'Reorder Level', field: 'reorderLevel', type: 'number', sm: 6 },
-                        ].map(({ label, field, type, required, sm }) => (
-                            <Grid item xs={12} sm={sm || 12} key={field}>
-                                <TextField label={label} type={type || 'text'} fullWidth required={required}
-                                    value={dialog.data[field] || ''}
-                                    onChange={(e) => setDialog({ ...dialog, data: { ...dialog.data, [field]: e.target.value } })} />
+                    {dialog.mode === 'create' ? (
+                        <Box mt={1}>
+                            <Grid container spacing={2} mb={2}>
+                                <Grid item xs={12} sm={4}>
+                                    <TextField select label="Primary Supplier" fullWidth required value={dialog.supplierId}
+                                        onChange={(e) => setDialog({ ...dialog, supplierId: e.target.value })}>
+                                        <MenuItem value="">— Select Supplier —</MenuItem>
+                                        {(suppData || []).map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+                                    </TextField>
+                                </Grid>
                             </Grid>
-                        ))}
-                        <Grid item xs={12} sm={6}>
-                            <TextField select label="Category" fullWidth value={dialog.data.categoryId || ''}
-                                onChange={(e) => setDialog({ ...dialog, data: { ...dialog.data, categoryId: e.target.value } })}>
-                                <MenuItem value="">— None —</MenuItem>
-                                {(catData || []).map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
-                            </TextField>
+                            <TableContainer>
+                                <Table size="small">
+                                    <TableHead>
+                                        <TableRow>
+                                            <TableCell width="25%">Item (from Catalog)</TableCell>
+                                            <TableCell>Buy Price</TableCell>
+                                            <TableCell>Sell Price</TableCell>
+                                            <TableCell>Stock Level</TableCell>
+                                            <TableCell>Min Stock</TableCell>
+                                            <TableCell align="right">Action</TableCell>
+                                        </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                        {dialog.bulkItems.map((item, idx) => (
+                                            <TableRow key={idx}>
+                                                <TableCell>
+                                                    <TextField select fullWidth size="small" value={item.itemId || ''}
+                                                        onChange={(e) => {
+                                                            const selected = itemsData?.find(i => i.id === e.target.value);
+                                                            const newBulk = [...dialog.bulkItems];
+                                                            newBulk[idx] = {
+                                                                ...newBulk[idx],
+                                                                itemId: selected.id, name: selected.name, sku: selected.sku,
+                                                                unit: selected.unit, categoryId: selected.categoryId || '', description: selected.description || ''
+                                                            };
+                                                            setDialog({ ...dialog, bulkItems: newBulk });
+                                                        }}>
+                                                        {(itemsData || []).map(i => <MenuItem key={i.id} value={i.id}>{i.name} ({i.sku || 'N/A'})</MenuItem>)}
+                                                    </TextField>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <TextField type="number" fullWidth size="small" value={item.buyingPrice}
+                                                        onChange={(e) => { const nb = [...dialog.bulkItems]; nb[idx].buyingPrice = e.target.value; setDialog({ ...dialog, bulkItems: nb }); }} />
+                                                </TableCell>
+                                                <TableCell>
+                                                    <TextField type="number" fullWidth size="small" value={item.sellingPrice}
+                                                        onChange={(e) => { const nb = [...dialog.bulkItems]; nb[idx].sellingPrice = e.target.value; setDialog({ ...dialog, bulkItems: nb }); }} />
+                                                </TableCell>
+                                                <TableCell>
+                                                    <TextField type="number" fullWidth size="small" value={item.quantity}
+                                                        onChange={(e) => { const nb = [...dialog.bulkItems]; nb[idx].quantity = e.target.value; setDialog({ ...dialog, bulkItems: nb }); }} />
+                                                </TableCell>
+                                                <TableCell>
+                                                    <TextField type="number" fullWidth size="small" value={item.reorderLevel}
+                                                        onChange={(e) => { const nb = [...dialog.bulkItems]; nb[idx].reorderLevel = e.target.value; setDialog({ ...dialog, bulkItems: nb }); }} />
+                                                </TableCell>
+                                                <TableCell align="right">
+                                                    <IconButton color="error" size="small" onClick={() => {
+                                                        const nb = dialog.bulkItems.filter((_, i) => i !== idx);
+                                                        setDialog({ ...dialog, bulkItems: nb });
+                                                    }}><Delete fontSize="small" /></IconButton>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </TableContainer>
+                            <Button startIcon={<Add />} onClick={() => setDialog({ ...dialog, bulkItems: [...dialog.bulkItems, { ...EMPTY }] })} sx={{ mt: 1 }}>
+                                Add Row
+                            </Button>
+                        </Box>
+                    ) : (
+                        <Grid container spacing={2} mt={0.5}>
+                            <Grid item xs={12} sm={12}>
+                                <TextField label="Product Name" fullWidth required value={dialog.data.name || ''}
+                                    onChange={(e) => setDialog({ ...dialog, data: { ...dialog.data, name: e.target.value } })} />
+                            </Grid>
+                            {[
+                                { label: 'SKU', field: 'sku', sm: 6 },
+                                { label: 'Unit (pcs/kg/L)', field: 'unit', sm: 6 },
+                                { label: 'Buying Price', field: 'buyingPrice', type: 'number', sm: 6 },
+                                { label: 'Selling Price', field: 'sellingPrice', type: 'number', sm: 6 },
+                                { label: 'Stock Level', field: 'quantity', type: 'number', sm: 6 },
+                                { label: 'Reorder Level', field: 'reorderLevel', type: 'number', sm: 6 },
+                            ].map(({ label, field, type, sm }) => (
+                                <Grid item xs={12} sm={sm || 12} key={field}>
+                                    <TextField label={label} type={type || 'text'} fullWidth
+                                        value={dialog.data[field] || ''}
+                                        onChange={(e) => setDialog({ ...dialog, data: { ...dialog.data, [field]: e.target.value } })} />
+                                </Grid>
+                            ))}
+                            <Grid item xs={12} sm={6}>
+                                <TextField select label="Category" fullWidth value={dialog.data.categoryId || ''}
+                                    onChange={(e) => setDialog({ ...dialog, data: { ...dialog.data, categoryId: e.target.value } })}>
+                                    <MenuItem value="">— None —</MenuItem>
+                                    {(catData || []).map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+                                </TextField>
+                            </Grid>
+                            <Grid item xs={12} sm={6}>
+                                <TextField select label="Supplier" fullWidth required value={dialog.data.supplierId || ''}
+                                    onChange={(e) => setDialog({ ...dialog, data: { ...dialog.data, supplierId: e.target.value } })}>
+                                    <MenuItem value="">— Select Supplier —</MenuItem>
+                                    {(suppData || []).map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+                                </TextField>
+                            </Grid>
+                            <Grid item xs={12}>
+                                <TextField label="Description" fullWidth multiline rows={2}
+                                    value={dialog.data.description || ''}
+                                    onChange={(e) => setDialog({ ...dialog, data: { ...dialog.data, description: e.target.value } })} />
+                            </Grid>
                         </Grid>
-                        <Grid item xs={12} sm={6}>
-                            <TextField select label="Supplier" fullWidth required value={dialog.data.supplierId || ''}
-                                onChange={(e) => setDialog({ ...dialog, data: { ...dialog.data, supplierId: e.target.value } })}>
-                                <MenuItem value="">— Select Supplier —</MenuItem>
-                                {(suppData || []).map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
-                            </TextField>
-                        </Grid>
-                        <Grid item xs={12}>
-                            <TextField label="Description" fullWidth multiline rows={2}
-                                value={dialog.data.description || ''}
-                                onChange={(e) => setDialog({ ...dialog, data: { ...dialog.data, description: e.target.value } })} />
-                        </Grid>
-                    </Grid>
+                    )}
                 </DialogContent>
                 <DialogActions sx={{ p: 2.5, pt: 0 }}>
                     <Button onClick={() => setDialog({ ...dialog, open: false })}>Cancel</Button>
-                    <Button variant="contained" onClick={() => saveMutation.mutate(dialog.data)} disabled={saveMutation.isLoading}>Save Product</Button>
+                    <Button variant="contained" onClick={() => saveMutation.mutate()} disabled={saveMutation.isLoading || (dialog.mode === 'create' ? (!dialog.supplierId || dialog.bulkItems.length === 0) : !dialog.data.name)}>Save Product{dialog.mode === 'create' ? 's' : ''}</Button>
                 </DialogActions>
             </Dialog>
         </Box>
