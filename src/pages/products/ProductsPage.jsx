@@ -7,7 +7,7 @@ import {
     MenuItem, Grid, Skeleton, Alert,
 } from '@mui/material';
 import { Add, Edit, Delete, Search, Warning } from '@mui/icons-material';
-import { productsAPI } from '../../services/api';
+import { productsAPI, suppliersAPI } from '../../services/api';
 import toast from 'react-hot-toast';
 
 const EMPTY = { name: '', sku: '', description: '', unit: 'pcs', buyingPrice: '', sellingPrice: '', quantity: 0, reorderLevel: 5, categoryId: '', supplierId: '' };
@@ -32,6 +32,11 @@ export default function ProductsPage() {
     const { data: catData } = useQuery({
         queryKey: ['categories'],
         queryFn: () => productsAPI.categories().then((r) => r.data.data),
+    });
+
+    const { data: suppData } = useQuery({
+        queryKey: ['suppliers'],
+        queryFn: () => suppliersAPI.list({ limit: 100 }).then((r) => r.data.data),
     });
 
     const saveMutation = useMutation({
@@ -136,7 +141,7 @@ export default function ProductsPage() {
                             { label: 'Unit (pcs/kg/L)', field: 'unit', sm: 6 },
                             { label: 'Buying Price', field: 'buyingPrice', type: 'number', sm: 6 },
                             { label: 'Selling Price', field: 'sellingPrice', type: 'number', sm: 6 },
-                            { label: 'Initial Stock', field: 'quantity', type: 'number', sm: 6 },
+                            { label: 'Stock Level', field: 'quantity', type: 'number', sm: 6 },
                             { label: 'Reorder Level', field: 'reorderLevel', type: 'number', sm: 6 },
                         ].map(({ label, field, type, required, sm }) => (
                             <Grid item xs={12} sm={sm || 12} key={field}>
@@ -145,11 +150,18 @@ export default function ProductsPage() {
                                     onChange={(e) => setDialog({ ...dialog, data: { ...dialog.data, [field]: e.target.value } })} />
                             </Grid>
                         ))}
-                        <Grid item xs={12}>
+                        <Grid item xs={12} sm={6}>
                             <TextField select label="Category" fullWidth value={dialog.data.categoryId || ''}
                                 onChange={(e) => setDialog({ ...dialog, data: { ...dialog.data, categoryId: e.target.value } })}>
                                 <MenuItem value="">— None —</MenuItem>
                                 {(catData || []).map((c) => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+                            </TextField>
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                            <TextField select label="Supplier" fullWidth required value={dialog.data.supplierId || ''}
+                                onChange={(e) => setDialog({ ...dialog, data: { ...dialog.data, supplierId: e.target.value } })}>
+                                <MenuItem value="">— Select Supplier —</MenuItem>
+                                {(suppData || []).map((s) => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
                             </TextField>
                         </Grid>
                         <Grid item xs={12}>
